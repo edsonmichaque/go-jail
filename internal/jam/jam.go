@@ -3,41 +3,39 @@ package jam
 import (
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/template"
 )
 
-type Jam struct{}
-
-type Options struct {
-	Name string
+type Jail struct {
+	JID int
 }
 
-type Jail struct {
-	ID   string      `json:"JID"`
+type Options struct {
 	Name string      `json:"Name"`
 	Host HostOptions `json:"Host"`
 	IP4  IPv4Options `json:"IP4"`
 	IP6  IPv4Options `json:"IP6"`
 	Path string      `json:"Path"`
+	Exec interface{}
 }
 
-func (j Jail) Marshal() (io.Reader, error) {
+func (j Options) Marshal() (io.Reader, error) {
 	tmpl := `
 {{ .Name }} {
     mount.devfs;
 
-	{{ if .Host }}
-    host.hostname  = {{ .Hostname }};
-    ip4.addr       = {{join .IP4Addr }};
-	{{ end }}
+	{{- if .Host }}
+    host.hostname  = {{ .Host.Hostname }};
+	{{- end }}
+	{{- if .IP4 }}
+    ip4.addr       = {{join .IP4.Addr }};
+	{{- end }}
     path           = "{{ .Path }}";
-	{{ if .Exec }}
+	{{- if .Exec }}
     exec.start     = "{{ .Exec.Start }}";
     exec.stop      = "{{ .Exec.Stop }}";
     exec.prestart  = "{{ .Exec.PreStart }}";
@@ -49,7 +47,11 @@ func (j Jail) Marshal() (io.Reader, error) {
 `
 	tmpl = strings.TrimSpace(tmpl)
 
-	t, err := template.New("").Parse(tmpl)
+	t, err := template.New("").Funcs(template.FuncMap{
+		"join": func(s []string) string {
+			return strings.Join(s, " ")
+		},
+	}).Parse(tmpl)
 	if err != nil {
 		return nil, err
 	}
@@ -70,8 +72,8 @@ type HostOptions struct {
 }
 
 type IPOptions struct {
-	Addr     string `json:"Addr"`
-	SAddrSel string `json:"SAddrSel"`
+	Addr     []string `json:"Addr"`
+	SAddrSel string   `json:"SAddrSel"`
 }
 
 type IPv4Options struct {
@@ -96,33 +98,17 @@ type ExecOptions struct {
 	Clean     bool   `json:"Clean"`
 }
 
-func Install(_ context.Context, _ Jail) error {
-	script := `
-PARTITIONS=DEFAULT
-DISTRIBUTIONS="kernel.txz base.txz"
-export nonInteractive="YES"
+func Create(_ context.Context, parent string, opts *Options) error {
+	pat := filepath.Join(parent, opts.Name+".conf")
 
-#!/bin/sh
-sysrc ifconfig_DEFAULT=DHCP
-sysrc sshd_enable=YES
-pkg install puppet
-`
-	script = strings.TrimSpace(script)
-
-	fmt.Println(script)
-
-	return nil
-}
-
-func Create(_ context.Context, j Jail) error {
-	f, err := os.Create(j.Name)
+	f, err := os.OpenFile(pat, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 
 	defer f.Close()
 
-	conf, err := j.Marshal()
+	conf, err := opts.Marshal()
 	if err != nil {
 		return err
 	}
@@ -131,34 +117,5 @@ func Create(_ context.Context, j Jail) error {
 		return err
 	}
 
-	cmd := exec.Command("bsdinstall", "jail", j.Path)
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-
 	return nil
-}
-
-func Start(_ context.Context, o Options) error {
-	fmt.Printf("service jail start %s", o.Name)
-
-	return nil
-}
-
-func Stop(_ context.Context, o Options) error {
-	fmt.Printf("service jail stop %s", o.Name)
-
-	return nil
-}
-
-func Update(_ context.Context, o Options) error {
-	fmt.Printf("service jail stop %s", o.Name)
-
-	return nil
-}
-
-func List(_ context.Context) ([]Jail, error) {
-	fmt.Println("jls")
-
-	return nil, errors.New("not implemented")
 }
