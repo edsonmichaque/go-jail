@@ -1,4 +1,4 @@
-package jail
+package jam
 
 import (
 	"bytes"
@@ -11,6 +11,8 @@ import (
 	"strings"
 	"text/template"
 )
+
+type Jam struct{}
 
 type Options struct {
 	Name string

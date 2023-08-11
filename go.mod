@@ -1,3 +1,3 @@
-module github.com/edsonmichaque/jail-go
+module github.com/edsonmichaque/jam
 
 go 1.20
