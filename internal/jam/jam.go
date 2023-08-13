@@ -6,11 +6,15 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
+	"time"
 )
 
 var fm = template.FuncMap{
@@ -19,8 +23,73 @@ var fm = template.FuncMap{
 	},
 }
 
+type State int
+
+const (
+	StateRunning State = iota
+)
+
 type Jail struct {
-	JID int
+	ID        int64
+	Name      string
+	CreatedAt time.Time
+	State     State
+	Config    *Opts
+	cmd       *exec.Cmd
+	stdin     *bytes.Buffer
+	stdout    *bytes.Buffer
+	stderr    *bytes.Buffer
+}
+
+func (j *Jail) Start() error {
+	args := []string{
+		"-f",
+		j.Config.TargetPath(),
+		"-c",
+		j.Name,
+		"-i",
+	}
+
+	j.cmd = exec.Command("/usr/sbin/jail", args...)
+
+	if err := j.cmd.Run(); err != nil {
+		return err
+	}
+
+	if !j.cmd.ProcessState.Success() {
+		return errors.New("error running")
+	}
+
+	out, err := j.cmd.Output()
+	if err != nil {
+		return err
+	}
+
+	j.ID, err = strconv.ParseInt(string(bytes.TrimSpace(out)), 10, 64)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (j Jail) save() ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (j *Jail) stop() error {
+	args := []string{
+		"-f", j.Config.TargetPath(),
+		"-r",
+		j.Name,
+	}
+
+	cmd := exec.CommandContext(context.Background(), "/usr/sbin/jail", args...)
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 type Opts struct {
@@ -34,6 +103,10 @@ type Opts struct {
 	Exec      *ExecOpts  `json:"Exec"`
 	Mount     *MountOpts `json:"Mount"`
 	VNet      *VNetOpts  `json:"VNet"`
+}
+
+func (o Opts) TargetPath() string {
+	return filepath.Join("/var/jam/conf", o.Name+".conf")
 }
 
 type MountOpts struct {

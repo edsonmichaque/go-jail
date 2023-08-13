@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+option go_package = "github.com/edsonmichaque/jam/proto";
+
+service Jam {
+    rpc CreateJail(CreateJailRequest) returns (CreateJailResponse) {}
+    rpc ListJails(ListJailsRequest) returns (ListJailsResponse) {}
+}
+
+message CreateJailRequest {
+    bool persist = 1;
+    Host host = 2;
+    string path = 3;
+}
+
+message CreateJailResponse{
+    string output = 1;
+}
+
+message JailOptions {
+    string name  = 1;
+    bool persist = 2;
+    string path  = 3;
+}
+
+message Host {
+    string host = 1;
+    string host_name = 2;
+}
+
+message Mount {
+    bool devfs = 1;
+    bool no_devfs = 2;
+}
+
+message ListJailsResponse {}
+
+message ListJailsRequest {}
