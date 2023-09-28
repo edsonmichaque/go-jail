@@ -63,18 +63,18 @@ func main() {
 		config.Jails = make([]string, 0)
 	}
 
-	err = jam.Create(context.Background(), root, &jam.Opts{
+	err = jam.Create(context.Background(), root, &jam.CreateOptions{
 		Name: os.Args[1],
-		Host: &jam.HostOpts{
+		Host: &jam.HostOptions{
 			Hostname: "localhost",
 		},
-		IPv4: &jam.IPv4Opts{
-			IPOpts: jam.IPOpts{
+		IPv4: &jam.IPv4Options{
+			IPOptions: jam.IPOptions{
 				Addr: []string{"127.0.0.1", "127.0.0.2"},
 			},
 		},
 		Path: filepath.Join(jailsPath, os.Args[1]),
-		Exec: &jam.ExecOpts{
+		Exec: &jam.ExecOptions{
 			PreStart: `echo "pre-start"`,
 			Start:    `echo "start"`,
 			Clean:    true,

@@ -34,23 +34,25 @@ type Jail struct {
 	Name      string
 	CreatedAt time.Time
 	State     State
-	Config    *Opts
+	Config    *CreateOptions
 	cmd       *exec.Cmd
 	stdin     *bytes.Buffer
 	stdout    *bytes.Buffer
 	stderr    *bytes.Buffer
 }
 
-func (j *Jail) Start() error {
-	args := []string{
+func (j *Jail) startArgs() []string {
+	return []string{
 		"-f",
-		j.Config.TargetPath(),
+		j.Config.configFilePath(),
 		"-c",
 		j.Name,
 		"-i",
 	}
+}
 
-	j.cmd = exec.Command("/usr/sbin/jail", args...)
+func (j *Jail) runCommand(cmd string, args []string) error {
+	j.cmd = exec.Command(cmd, args...)
 
 	if err := j.cmd.Run(); err != nil {
 		return err
@@ -58,6 +60,14 @@ func (j *Jail) Start() error {
 
 	if !j.cmd.ProcessState.Success() {
 		return errors.New("error running")
+	}
+
+	return nil
+}
+
+func (j *Jail) Start() error {
+	if err := j.runCommand("/usr/sbin/jail", j.startArgs()); err != nil {
+		return err
 	}
 
 	out, err := j.cmd.Output()
@@ -79,7 +89,7 @@ func (j Jail) save() ([]byte, error) {
 
 func (j *Jail) stop() error {
 	args := []string{
-		"-f", j.Config.TargetPath(),
+		"-f", j.Config.configFilePath(),
 		"-r",
 		j.Name,
 	}
@@ -92,29 +102,36 @@ func (j *Jail) stop() error {
 	return nil
 }
 
-type Opts struct {
-	Persist   bool       `json:"Persist"`
-	Name      string     `json:"Name"`
-	Interface string     `json:"Interface"`
-	Path      string     `json:"Path"`
-	Host      *HostOpts  `json:"Host"`
-	IPv4      *IPv4Opts  `json:"IP4"`
-	IPv6      *IPv4Opts  `json:"IP6"`
-	Exec      *ExecOpts  `json:"Exec"`
-	Mount     *MountOpts `json:"Mount"`
-	VNet      *VNetOpts  `json:"VNet"`
+type CreateOptions struct {
+	Persist   bool          `json:"Persist"`
+	Name      string        `json:"Name"`
+	Interface string        `json:"Interface"`
+	Path      string        `json:"Path"`
+	Host      *HostOptions  `json:"Host"`
+	IPv4      *IPv4Options  `json:"IP4"`
+	IPv6      *IPv4Options  `json:"IP6"`
+	Exec      *ExecOptions  `json:"Exec"`
+	Mount     *MountOptions `json:"Mount"`
+	VNet      *VNetOptions  `json:"VNet"`
+	ConfigDir string        `json:"ConfigDir"`
 }
 
-func (o Opts) TargetPath() string {
-	return filepath.Join("/var/jam/conf", o.Name+".conf")
+func (o CreateOptions) configFilePath() string {
+	pat := o.ConfigDir
+
+	if pat == "" {
+		pat = "/var/jam/conf"
+	}
+
+	return filepath.Join(pat, o.Name+".conf")
 }
 
-type MountOpts struct {
+type MountOptions struct {
 	DevFS   bool `json:"DevFS"`
 	NoDevFS bool `json:"NoDevFS"`
 }
 
-type ExecOpts struct {
+type ExecOptions struct {
 	PreStart  string
 	Start     string
 	PostStart string
@@ -124,32 +141,32 @@ type ExecOpts struct {
 	Clean     bool `json:"Clean"`
 }
 
-type VNetOpts struct {
+type VNetOptions struct {
 	Interface string
 	Enable    bool
 }
 
-type HostOpts struct {
+type HostOptions struct {
 	Host     string
 	Hostname string
 }
 
-type IPOpts struct {
+type IPOptions struct {
 	SAddrSel string   `json:"SAddrSel"`
 	Addr     []string `json:"Addr"`
 }
 
-type IPv4Opts struct {
-	IPOpts
+type IPv4Options struct {
+	IPOptions
 }
 
-type IPv6Opts struct {
-	IPOpts
+type IPv6Options struct {
+	IPOptions
 }
 
-type AllowOpts struct{}
+type AllowOptions struct{}
 
-func (o Opts) Conf() (io.Reader, error) {
+func (o CreateOptions) buildConfig() (io.Reader, error) {
 	tmpl := `
 # File created by jamd
 # DO NOT EDIT
@@ -214,7 +231,7 @@ func (o Opts) Conf() (io.Reader, error) {
 	return renderTemplate(o, tmpl)
 }
 
-func renderTemplate(obj Opts, tmpls string) (io.Reader, error) {
+func renderTemplate(obj CreateOptions, tmpls string) (io.Reader, error) {
 	t, err := template.New("").Funcs(fm).Parse(strings.TrimSpace(tmpls))
 	if err != nil {
 		return nil, err
@@ -229,7 +246,7 @@ func renderTemplate(obj Opts, tmpls string) (io.Reader, error) {
 	return &buf, nil
 }
 
-func WriteConf(w io.Writer, r io.Reader) error {
+func writeConfig(w io.Writer, r io.Reader) error {
 	if _, err := io.Copy(w, r); err != nil {
 		return err
 	}
@@ -239,22 +256,22 @@ func WriteConf(w io.Writer, r io.Reader) error {
 
 type Wrapper func(io.Reader) (io.Reader, error)
 
-func Create(_ context.Context, parent string, opts *Opts) error {
-	pat := filepath.Join(parent, opts.Name+".conf")
+func Create(_ context.Context, parent string, createOpts *CreateOptions) error {
+	pat := filepath.Join(parent, createOpts.Name+".conf")
 
-	f, err := os.OpenFile(pat, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	configFile, err := os.OpenFile(pat, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 
-	defer f.Close()
+	defer configFile.Close()
 
-	conf, err := opts.Conf()
+	config, err := createOpts.buildConfig()
 	if err != nil {
 		return err
 	}
 
-	if _, err = io.Copy(f, conf); err != nil {
+	if _, err = io.Copy(configFile, config); err != nil {
 		return err
 	}
 
@@ -313,7 +330,7 @@ func GzipWrapper() Wrapper {
 	}
 }
 
-func ZippWrapper(pat string) Wrapper {
+func ZipWrapper(pat string) Wrapper {
 	return func(r io.Reader) (io.Reader, error) {
 		buf := new(bytes.Buffer)
 
