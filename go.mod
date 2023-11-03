@@ -3,6 +3,9 @@ module github.com/edsonmichaque/jam
 go 1.20
 
 require (
+	github.com/dsnet/compress v0.0.1
+	github.com/klauspost/compress v1.17.2
+	github.com/ulikunitz/xz v0.5.11
 	google.golang.org/grpc v1.58.2
 	google.golang.org/protobuf v1.31.0
 )
