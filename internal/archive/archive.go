@@ -37,7 +37,7 @@ type (
 
 	UnarchiveFunc func(context.Context, io.Reader) (io.ReadCloser, error)
 
-	CompressFunc func(context.Context, io.Writer) (io.Writer, error)
+	ArchiveFunc func(context.Context, io.Writer) (io.Writer, error)
 )
 
 func Tar(_ io.Reader, _ string, opts *TarOptions) error {
@@ -173,7 +173,7 @@ func ArchiveStreamWithOptions(ctx context.Context, src io.Reader, dst io.Writer,
 	return nil
 }
 
-func buildArchiveFunc(opts *ArchiveOptions) CompressFunc {
+func buildArchiveFunc(opts *ArchiveOptions) ArchiveFunc {
 	if opts == nil {
 		opts = &ArchiveOptions{
 			Mode: NopArchive,
