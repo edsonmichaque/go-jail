@@ -84,9 +84,9 @@ func UnarchiveWithOptions(ctx context.Context, r io.Reader, dest string, opts *A
 }
 
 func UnarchiveStreamWithOptions(ctx context.Context, src io.Reader, dest io.Writer, opts *ArchiveOptions) error {
-	decompressFunc := buildUnarchiveFunc(opts)
+	unarchive := buildUnarchiveFunc(opts)
 
-	r, err := decompressFunc(ctx, src)
+	r, err := unarchive(ctx, src)
 	if err != nil {
 		return err
 	}
@@ -159,9 +159,9 @@ func ArchiveWithOptions(ctx context.Context, src io.Reader, dest string, opts *A
 }
 
 func ArchiveStreamWithOptions(ctx context.Context, src io.Reader, dst io.Writer, opts *ArchiveOptions) error {
-	compress := buildArchiveFunc(opts)
+	archive := buildArchiveFunc(opts)
 
-	w, err := compress(ctx, dst)
+	w, err := archive(ctx, dst)
 	if err != nil {
 		return err
 	}
