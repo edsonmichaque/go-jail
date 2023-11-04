@@ -12,10 +12,10 @@ import (
 	"github.com/ulikunitz/xz"
 )
 
-type CompressionMode int
+type ArchiveMode int
 
 const (
-	Uncompressed CompressionMode = iota
+	NopArchive ArchiveMode = iota
 	Gzip
 	Bzip2
 	Xz
@@ -31,9 +31,13 @@ type (
 		UseCLI bool
 	}
 
-	CompressionOptions struct {
-		Mode CompressionMode
+	ArchiveOptions struct {
+		Mode ArchiveMode
 	}
+
+	UnarchiveFunc func(context.Context, io.Reader) (io.ReadCloser, error)
+
+	CompressFunc func(context.Context, io.Writer) (io.Writer, error)
 )
 
 func Tar(_ io.Reader, _ string, opts *TarOptions) error {
@@ -53,119 +57,159 @@ func UntarStream(r io.Reader, dest string, opts *TarOptions) error {
 	return errors.New("not implemented")
 }
 
-func findCompressionMode(ctx context.Context, r io.Reader) (CompressionMode, error) {
+func findArchiveMode(ctx context.Context, r io.Reader) (ArchiveMode, error) {
 	return 0, errors.New("not implemented")
 }
 
-func DecompressStream(ctx context.Context, r io.Reader, dst io.Writer) error {
-	mode, err := findCompressionMode(ctx, r)
+func unarchiveStream(ctx context.Context, r io.Reader, dst io.Writer) error {
+	mode, err := findArchiveMode(ctx, r)
 	if err != nil {
 		return err
 	}
 
-	opts := CompressionOptions{
+	opts := ArchiveOptions{
 		Mode: mode,
 	}
 
-	return DecompressStreamWithOptions(ctx, r, dst, &opts)
+	return UnarchiveStreamWithOptions(ctx, r, dst, &opts)
 }
 
-func DecompressWithOptions(ctx context.Context, r io.Reader, dest string, opts *CompressionOptions) error {
+func UnarchiveWithOptions(ctx context.Context, r io.Reader, dest string, opts *ArchiveOptions) error {
 	f, err := os.Open(dest)
 	if err != nil {
 		return err
 	}
 
-	return DecompressStreamWithOptions(ctx, r, f, opts)
+	return UnarchiveStreamWithOptions(ctx, r, f, opts)
 }
 
-func DecompressStreamWithOptions(_ context.Context, src io.Reader, dest io.Writer, opts *CompressionOptions) error {
-	newReader, err := newCompressReader(context.Background(), src, opts)
+func UnarchiveStreamWithOptions(ctx context.Context, src io.Reader, dest io.Writer, opts *ArchiveOptions) error {
+	decompressFunc := buildUnarchiveFunc(opts)
+
+	r, err := decompressFunc(ctx, src)
 	if err != nil {
 		return err
 	}
 
-	if _, err := io.Copy(dest, newReader); err != nil {
+	if _, err := io.Copy(dest, r); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func newCompressReader(_ context.Context, src io.Reader, opts *CompressionOptions) (io.ReadCloser, error) {
+func buildUnarchiveFunc(opts *ArchiveOptions) UnarchiveFunc {
 	if opts == nil {
-		opts = &CompressionOptions{
-			Mode: Uncompressed,
+		opts = &ArchiveOptions{
+			Mode: NopArchive,
 		}
 	}
 
 	switch opts.Mode {
-	case Uncompressed:
-		return io.NopCloser(src), nil
 	case Gzip:
-		return gzip.NewReader(src)
+		return gzipUnarchiver
 	case Bzip2:
-		return bzip2.NewReader(src, nil)
+		return bzip2Unarchiver
 	case Xz:
-		xzReader, err := xz.NewReader(src)
-		if err != nil {
-			return nil, err
-		}
-
-		return io.NopCloser(xzReader), nil
+		return xzUnarchiver
 	case Zstd:
-		zstdReader, err := zstd.NewReader(src)
-		if err != nil {
-			return nil, err
-		}
-
-		return io.NopCloser(zstdReader), nil
+		return zstdUnarchiver
 	default:
-		return nil, errors.New("not supported")
+		return nopUnarchiver
 	}
 }
 
-func CompressWithOptions(ctx context.Context, src io.Reader, dest string, opts *CompressionOptions) error {
+func nopUnarchiver(_ context.Context, src io.Reader) (io.ReadCloser, error) {
+	return io.NopCloser(src), nil
+}
+
+func gzipUnarchiver(_ context.Context, src io.Reader) (io.ReadCloser, error) {
+	return gzip.NewReader(src)
+}
+
+func bzip2Unarchiver(_ context.Context, src io.Reader) (io.ReadCloser, error) {
+	return bzip2.NewReader(src, nil)
+}
+
+func xzUnarchiver(_ context.Context, src io.Reader) (io.ReadCloser, error) {
+	r, err := xz.NewReader(src)
+	if err != nil {
+		return nil, err
+	}
+
+	return io.NopCloser(r), nil
+}
+
+func zstdUnarchiver(_ context.Context, src io.Reader) (io.ReadCloser, error) {
+	r, err := zstd.NewReader(src)
+	if err != nil {
+		return nil, err
+	}
+
+	return io.NopCloser(r), nil
+}
+
+func ArchiveWithOptions(ctx context.Context, src io.Reader, dest string, opts *ArchiveOptions) error {
 	f, err := os.Open(dest)
 	if err != nil {
 		return err
 	}
 
-	return CompressStreamWithOptions(ctx, src, f, opts)
+	return ArchiveStreamWithOptions(ctx, src, f, opts)
 }
 
-func newCompressWriter(_ context.Context, src io.Writer, opts *CompressionOptions) (io.Writer, error) {
-	if opts == nil {
-		opts = &CompressionOptions{
-			Mode: Uncompressed,
-		}
-	}
+func ArchiveStreamWithOptions(ctx context.Context, src io.Reader, dst io.Writer, opts *ArchiveOptions) error {
+	compress := buildArchiveFunc(opts)
 
-	switch opts.Mode {
-	case Uncompressed:
-		return src, nil
-	case Gzip:
-		return gzip.NewWriter(src), nil
-	case Bzip2:
-		return bzip2.NewWriter(src, nil)
-	case Xz:
-		return xz.NewWriter(src)
-	case Zstd:
-		return zstd.NewWriter(src)
-	default:
-		return nil, errors.New("not supported")
-	}
-}
-
-func CompressStreamWithOptions(_ context.Context, src io.Reader, dst io.Writer, opts *CompressionOptions) error {
-	newWriter, err := newCompressWriter(context.Background(), dst, opts)
+	w, err := compress(ctx, dst)
 	if err != nil {
 		return err
 	}
 
-	if _, err := io.Copy(newWriter, src); err != nil {
+	if _, err := io.Copy(w, src); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func buildArchiveFunc(opts *ArchiveOptions) CompressFunc {
+	if opts == nil {
+		opts = &ArchiveOptions{
+			Mode: NopArchive,
+		}
+	}
+
+	switch opts.Mode {
+	case Gzip:
+		return gzipArchiver
+	case Bzip2:
+		return bzip2Archiver
+	case Xz:
+		return xzArchiver
+	case Zstd:
+		return zstdArchiver
+	default:
+		return nopArchiver
+	}
+}
+
+func nopArchiver(_ context.Context, src io.Writer) (io.Writer, error) {
+	return src, nil
+}
+
+func gzipArchiver(_ context.Context, src io.Writer) (io.Writer, error) {
+	return gzip.NewWriter(src), nil
+}
+
+func bzip2Archiver(_ context.Context, src io.Writer) (io.Writer, error) {
+	return bzip2.NewWriter(src, nil)
+}
+
+func xzArchiver(_ context.Context, src io.Writer) (io.Writer, error) {
+	return xz.NewWriter(src)
+}
+
+func zstdArchiver(_ context.Context, src io.Writer) (io.Writer, error) {
+	return zstd.NewWriter(src)
 }
