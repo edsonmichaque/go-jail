@@ -16,14 +16,14 @@ type ArchiveMode int
 
 const (
 	NopArchive ArchiveMode = iota
-	Gzip
-	Bzip2
-	Xz
-	Zstd
+	ArchiveGZip
+	ArchiveBzip2
+	ArchiveXz
+	ArchiveZStd
 )
 
 const (
-	DefaultCompressMode = Gzip
+	DefaultCompressMode = ArchiveGZip
 )
 
 type (
@@ -106,11 +106,11 @@ func buildUnarchiveFunc(opts *ArchiveOptions) UnarchiveFunc {
 	}
 
 	switch opts.Mode {
-	case Gzip:
+	case ArchiveGZip:
 		return gzipUnarchiver
-	case Bzip2:
+	case ArchiveBzip2:
 		return bzip2Unarchiver
-	case Xz:
+	case ArchiveXz:
 		return xzUnarchiver
 	case Zstd:
 		return zstdUnarchiver
@@ -181,11 +181,11 @@ func buildArchiveFunc(opts *ArchiveOptions) ArchiveFunc {
 	}
 
 	switch opts.Mode {
-	case Gzip:
+	case ArchiveGZip:
 		return gzipArchiver
-	case Bzip2:
+	case ArchiveBzip2:
 		return bzip2Archiver
-	case Xz:
+	case ArchiveXz:
 		return xzArchiver
 	case Zstd:
 		return zstdArchiver
